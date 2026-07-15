@@ -1,7 +1,7 @@
 // api/ai.js — Vercel Serverless Function
 //
 // SECURITY NOTE: This is the ONLY place the LLM API key is used. It is read
-// from the server-side environment variable ANTHROPIC_API_KEY (set in your
+// from the server-side environment variable GEMINI_API_KEY (set in your
 // Vercel project settings → Environment Variables), and is never exposed to
 // the browser bundle. The frontend only ever talks to this endpoint.
 //
@@ -27,7 +27,7 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(204).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     // No key configured — let the frontend fall back to demo mode.
     return res.status(503).json({ error: 'AI backend not configured' });
@@ -49,31 +49,32 @@ export default async function handler(req, res) {
   }
 
   try {
-    const upstream = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 320,
-        system: SYSTEM_PROMPTS[mode],
-        messages: [{ role: 'user', content: prompt.slice(0, 4000) }],
-      }),
-    });
+    const model = 'gemini-2.5-flash';
+    const upstream = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': apiKey,
+        },
+        body: JSON.stringify({
+          system_instruction: { parts: [{ text: SYSTEM_PROMPTS[mode] }] },
+          contents: [{ role: 'user', parts: [{ text: prompt.slice(0, 4000) }] }],
+          generationConfig: { maxOutputTokens: 320 },
+        }),
+      }
+    );
 
     if (!upstream.ok) {
       const errText = await upstream.text();
-      console.error('Anthropic API error:', upstream.status, errText);
+      console.error('Gemini API error:', upstream.status, errText);
       return res.status(502).json({ error: 'Upstream AI error' });
     }
 
     const data = await upstream.json();
-    const text = (data.content || [])
-      .filter((b) => b.type === 'text')
-      .map((b) => b.text)
+    const text = (data.candidates?.[0]?.content?.parts || [])
+      .map((p) => p.text || '')
       .join('\n')
       .trim();
 
