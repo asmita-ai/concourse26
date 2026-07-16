@@ -49,7 +49,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const model = 'gemini-2.5-flash';
+    const model = 'gemini-3.5-flash';
     const upstream = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
       {
