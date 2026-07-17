@@ -2,18 +2,26 @@
 
 **GenAI tournament intelligence for FIFA World Cup 2026 — built for [Challenge 4] Smart Stadiums & Tournament Operations.**
 
-> **Live demo:** _add your deployed URL here_
-> **Repo:** _add your GitHub URL here_
+> **Live demo:** https://concourse26.vercel.app
+> **Repo:** https://github.com/asmita-ai/concourse26
 
-## The idea, and why it's different
+---
+
+## Chosen vertical
+
+Concourse26's primary focus is **Operational Intelligence & Real-Time Decision Support**, applied at the tournament level rather than the single-venue level. It also directly covers **Crowd Management**, **Accessibility**, **Transportation**, **Sustainability**, and **Multilingual Assistance** — the six modules map one-to-one onto these areas (see table below), all sharing one underlying cross-venue data model instead of being built as six disconnected tools.
+
+## Approach and logic
 
 FIFA World Cup 2026 is the first World Cup ever hosted across **three countries and 16 cities**: Atlanta, Boston, Dallas, Guadalajara, Houston, Kansas City, Los Angeles, Mexico City, Miami, Monterrey, New York/New Jersey, Philadelphia, San Francisco Bay Area, Seattle, Toronto, and Vancouver.
 
-Most "smart stadium" GenAI tools — including plenty of hackathon submissions — treat this like any other single-venue problem: a chatbot for one stadium, a crowd heatmap for one stadium, navigation inside one stadium. That misses what the challenge title actually says: **Tournament** Operations, not just Stadium Operations.
+Most "smart stadium" GenAI tools treat this like any other single-venue problem: a chatbot for one stadium, a crowd heatmap for one stadium, navigation inside one stadium. That misses what the challenge title actually says: **Tournament** Operations, not just Stadium Operations.
 
-A fan might watch a group match in Houston and a Round-of-16 match in Toronto five days later. A steward shortage in one city might be solvable by shifting volunteers from a lower-demand match elsewhere. A security pattern showing up in one venue is worth checking for at others the same day. **Concourse26 is built around that reality** — six AI modules that all share one cross-venue view, instead of six copies of the same single-stadium tool.
+A fan might watch a group match in Houston and a Round-of-16 match in Toronto five days later. A steward shortage in one city might be solvable by shifting volunteers from a lower-demand match elsewhere. A security pattern showing up in one venue is worth checking for at others the same day. **Concourse26's logic is built around that reality**: every module operates on a shared model of all 16 venues (`src/lib/venues.js`), not an isolated single stadium, so recommendations can reference "the other venue" or "the next city on this fan's itinerary" instead of only ever seeing one location in isolation.
 
-## The six modules
+## How the solution works
+
+**The six modules:**
 
 | Module | Who it's for | What makes it cross-venue |
 |---|---|---|
@@ -24,34 +32,30 @@ A fan might watch a group match in Houston and a Round-of-16 match in Toronto fi
 | **M5 — Incident Correlation Engine** | Staff | Triages a single incident report and flags whether the pattern is worth watching for at *other* host cities the same day |
 | **M6 — Sustainability Ledger** | Fans | Individual green-transport choices roll up into one running tournament-wide carbon ledger across all 16 venues |
 
-This still covers every area named in the brief — navigation, crowd management, accessibility, transportation, sustainability, multilingual assistance, operational intelligence, real-time decision support — just organized around the tournament as a connected system rather than 16 disconnected ones.
-
-## Architecture
+**Architecture:**
 
 ```
 Browser (React/Vite SPA)
    │  fetch('/api/ai', { mode, prompt })
    ▼
 /api/ai.js  (Vercel serverless function)
-   │  reads process.env.ANTHROPIC_API_KEY  (server-side only)
+   │  reads process.env.GEMINI_API_KEY  (server-side only)
    ▼
-Anthropic Messages API
+Google Gemini API (gemini-3.5-flash)
 ```
 
 **Security.** The model API key is never bundled into frontend JS and never sent to the browser. It lives only in the serverless function's environment variables. The client only talks to `/api/ai`, which validates the request (`mode` allow-list, prompt length cap, CORS, method check) before forwarding it upstream.
 
-**Resilience / testing.** If no `ANTHROPIC_API_KEY` is configured (e.g. a judge clones the repo with zero setup), `/api/ai` returns `503` and the frontend automatically falls back to a local, input-aware "demo intelligence" layer (`src/lib/ai.js`) — clearly labeled `Demo intelligence` in the UI rather than pretending to be live. Every module stays fully interactive either way, and this fallback path is unit-tested.
+**Resilience / testing.** If no `GEMINI_API_KEY` is configured (e.g. a judge clones the repo with zero setup), `/api/ai` returns `503` and the frontend automatically falls back to a local, input-aware "demo intelligence" layer (`src/lib/ai.js`) — clearly labeled `Demo intelligence` in the UI rather than pretending to be live. Every module stays fully interactive either way, and this fallback path is unit-tested.
 
 **Efficiency.** No heavy UI framework — hand-written CSS with design tokens, a single small React tree, one shared AI-calling function reused by all six modules. Production build is ~56 KB gzipped JS.
 
 **Accessibility.** Keyboard-operable tabs (`role="tab"`/`aria-selected`), visible focus rings, `aria-label`s on inputs, maps, and live regions, `prefers-reduced-motion` support, and a high-contrast/large-text toggle built directly into the Accessibility Passport module.
 
-**Data note.** The 16 host cities and their countries are real, public FIFA World Cup 2026 information. Live congestion levels, staffing numbers, and the running carbon total are simulated for demo purposes — clearly not claimed as real operational data anywhere in the app.
-
-## Project structure
+**Project structure:**
 
 ```
-├── api/ai.js                    # Serverless proxy to the LLM (key stays server-side)
+├── api/ai.js                    # Serverless proxy to Gemini (key stays server-side)
 ├── src/
 │   ├── App.jsx                  # Console shell / module-tab layout
 │   ├── styles.css               # Design tokens + all styling
@@ -63,6 +67,13 @@ Anthropic Messages API
 ├── vercel.json                   # SPA rewrite rules
 └── .env.example
 ```
+
+## Assumptions made
+
+- The 16 host cities and their countries are real, public FIFA World Cup 2026 information. Live congestion levels, staffing numbers, and the running carbon total are **simulated** for demo purposes — clearly labeled and not claimed as real operational data anywhere in the app.
+- The inter-city "links" shown in the network diagram are illustrative fan-travel corridors between geographically nearby host cities, not an actual published transit schedule.
+- Match itineraries, venue assignments, and incident reports entered by a user are treated as hypothetical scenarios for demonstration, not real fan or staff data.
+- Where a judge runs this with no Gemini API key configured, all outputs are clearly labeled `Demo intelligence` rather than silently faking a live AI response — this was a deliberate design choice for transparency and gradeability with zero setup.
 
 ## Run it locally
 
@@ -80,7 +91,7 @@ Everything works without an API key — you'll see `Demo intelligence` on AI out
 1. Push this repo to GitHub.
 2. Go to [vercel.com/new](https://vercel.com/new) and import the repo. Vercel auto-detects Vite; no config needed.
 3. In **Project Settings → Environment Variables**, add:
-   - `ANTHROPIC_API_KEY` = your key from [console.anthropic.com](https://console.anthropic.com/)
+   - `GEMINI_API_KEY` = your free key from [Google AI Studio](https://aistudio.google.com/apikey)
 4. Deploy. `api/ai.js` is automatically picked up as a serverless function.
 5. Redeploy after adding the key — every module switches from `Demo intelligence` to live `AI-generated` responses, no frontend code changes needed.
 
