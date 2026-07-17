@@ -59,9 +59,12 @@ export default async function handler(req, res) {
           'x-goog-api-key': apiKey,
         },
         body: JSON.stringify({
-          system_instruction: { parts: [{ text: SYSTEM_PROMPTS[mode] }] },
+          systemInstruction: { parts: [{ text: SYSTEM_PROMPTS[mode] }] },
           contents: [{ role: 'user', parts: [{ text: prompt.slice(0, 4000) }] }],
-          generationConfig: { maxOutputTokens: 320 },
+          generationConfig: {
+            maxOutputTokens: 1024,
+            thinkingConfig: { thinkingLevel: 'low' },
+          },
         }),
       }
     );
