@@ -1,102 +1,118 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { validateRequest, isRateLimited, __resetRateLimitStateForTests } from './validateRequest.js';
+import { describe, it, expect } from 'vitest';
+import { sanitizePrompt, validateBody, RateLimiter, resolveAllowedOrigin } from './validateRequest.js';
 
-describe('validateRequest', () => {
+const MODES = new Set(['journey', 'crowdmesh', 'incident']);
+
+describe('sanitizePrompt', () => {
+  it('strips ASCII control characters', () => {
+    expect(sanitizePrompt('hello\x00world\x1F!')).toBe('helloworld!');
+  });
+
+  it('preserves newlines and tabs', () => {
+    expect(sanitizePrompt('line one\nline two\tindented')).toBe('line one\nline two\tindented');
+  });
+
+  it('preserves unicode content for multilingual input', () => {
+    const input = '东京から大阪へ, أهلا وسهلا, Привет мир, Café résumé';
+    expect(sanitizePrompt(input)).toBe(input);
+  });
+
+  it('enforces a 4000-character length cap', () => {
+    const long = 'a'.repeat(5000);
+    expect(sanitizePrompt(long).length).toBe(4000);
+  });
+
+  it('returns an empty string for non-string input', () => {
+    expect(sanitizePrompt(null)).toBe('');
+    expect(sanitizePrompt(undefined)).toBe('');
+    expect(sanitizePrompt(42)).toBe('');
+  });
+});
+
+describe('validateBody', () => {
   it('accepts a well-formed request', () => {
-    const result = validateRequest({ mode: 'journey', prompt: 'Origin: Chicago.' });
+    const result = validateBody({ mode: 'journey', prompt: 'Origin: Dallas.' }, MODES);
     expect(result.ok).toBe(true);
     expect(result.mode).toBe('journey');
-    expect(result.prompt).toBe('Origin: Chicago.');
+    expect(result.prompt).toBe('Origin: Dallas.');
   });
 
   it('rejects a missing body', () => {
-    const result = validateRequest(null);
-    expect(result.ok).toBe(false);
-    expect(result.status).toBe(400);
+    expect(validateBody(null, MODES).ok).toBe(false);
+    expect(validateBody(undefined, MODES).ok).toBe(false);
   });
 
-  it('rejects an unknown mode', () => {
-    const result = validateRequest({ mode: 'not-a-real-mode', prompt: 'hello' });
+  it('rejects a mode outside the allow-list', () => {
+    const result = validateBody({ mode: 'delete-database', prompt: 'x' }, MODES);
     expect(result.ok).toBe(false);
     expect(result.error).toMatch(/mode/i);
   });
 
   it('rejects a missing prompt', () => {
-    const result = validateRequest({ mode: 'journey' });
+    const result = validateBody({ mode: 'journey' }, MODES);
     expect(result.ok).toBe(false);
   });
 
-  it('rejects an empty-string prompt', () => {
-    const result = validateRequest({ mode: 'journey', prompt: '' });
+  it('rejects a whitespace-only prompt', () => {
+    const result = validateBody({ mode: 'journey', prompt: '   ' }, MODES);
     expect(result.ok).toBe(false);
   });
 
-  it('rejects a prompt over the maximum length', () => {
-    const result = validateRequest({ mode: 'journey', prompt: 'a'.repeat(4001) });
-    expect(result.ok).toBe(false);
-    expect(result.error).toMatch(/length/i);
-  });
-
-  it('accepts a prompt exactly at the maximum length', () => {
-    const result = validateRequest({ mode: 'journey', prompt: 'a'.repeat(4000) });
+  it('sanitizes the prompt before returning it', () => {
+    const result = validateBody({ mode: 'journey', prompt: 'hi\x00there' }, MODES);
     expect(result.ok).toBe(true);
-  });
-
-  it('strips control characters from the prompt without touching real content', () => {
-    const dirty = 'Origin: Chicago\x00\x07 to Dallas';
-    const result = validateRequest({ mode: 'journey', prompt: dirty });
-    expect(result.ok).toBe(true);
-    // eslint-disable-next-line no-control-regex
-    expect(result.prompt).not.toMatch(/[\x00-\x08]/);
-    expect(result.prompt).toContain('Origin: Chicago');
-    expect(result.prompt).toContain('to Dallas');
-  });
-
-  it('preserves non-Latin unicode needed for multilingual input', () => {
-    const result = validateRequest({ mode: 'journey', prompt: '¿Dónde está la parada de taxis? 你好' });
-    expect(result.ok).toBe(true);
-    expect(result.prompt).toContain('¿Dónde está');
-    expect(result.prompt).toContain('你好');
-  });
-
-  it('rejects a prompt that becomes empty after sanitization', () => {
-    const result = validateRequest({ mode: 'journey', prompt: '\x00\x01\x02' });
-    expect(result.ok).toBe(false);
+    expect(result.prompt).toBe('hithere');
   });
 });
 
-describe('isRateLimited', () => {
-  beforeEach(() => {
-    __resetRateLimitStateForTests();
-  });
-
+describe('RateLimiter', () => {
   it('allows requests under the limit', () => {
-    const now = Date.now();
-    for (let i = 0; i < 19; i++) {
-      expect(isRateLimited('client-a', now)).toBe(false);
-    }
+    const rl = new RateLimiter({ limit: 3, windowMs: 60_000 });
+    const now = 1_000_000;
+    expect(rl.check('client-a', now).allowed).toBe(true);
+    expect(rl.check('client-a', now + 10).allowed).toBe(true);
+    expect(rl.check('client-a', now + 20).allowed).toBe(true);
   });
 
-  it('blocks a client once they exceed the per-window limit', () => {
-    const now = Date.now();
-    for (let i = 0; i < 20; i++) {
-      isRateLimited('client-b', now);
-    }
-    expect(isRateLimited('client-b', now)).toBe(true);
+  it('blocks the request that exceeds the limit within the window', () => {
+    const rl = new RateLimiter({ limit: 2, windowMs: 60_000 });
+    const now = 2_000_000;
+    rl.check('client-b', now);
+    rl.check('client-b', now + 10);
+    const third = rl.check('client-b', now + 20);
+    expect(third.allowed).toBe(false);
+    expect(third.remaining).toBe(0);
+  });
+
+  it('resets after the window has fully elapsed', () => {
+    const rl = new RateLimiter({ limit: 1, windowMs: 1000 });
+    const now = 5_000_000;
+    expect(rl.check('client-c', now).allowed).toBe(true);
+    expect(rl.check('client-c', now + 500).allowed).toBe(false);
+    expect(rl.check('client-c', now + 1500).allowed).toBe(true);
   });
 
   it('tracks separate clients independently', () => {
-    const now = Date.now();
-    for (let i = 0; i < 20; i++) isRateLimited('client-c', now);
-    expect(isRateLimited('client-c', now)).toBe(true);
-    expect(isRateLimited('client-d', now)).toBe(false);
+    const rl = new RateLimiter({ limit: 1, windowMs: 60_000 });
+    const now = 9_000_000;
+    expect(rl.check('client-x', now).allowed).toBe(true);
+    expect(rl.check('client-y', now).allowed).toBe(true);
+    expect(rl.check('client-x', now + 1).allowed).toBe(false);
+  });
+});
+
+describe('resolveAllowedOrigin', () => {
+  it('returns null when no origin header is present', () => {
+    expect(resolveAllowedOrigin(undefined, ['https://concourse26.vercel.app'])).toBeNull();
   });
 
-  it('resets once the sliding window has passed', () => {
-    const t0 = Date.now();
-    for (let i = 0; i < 20; i++) isRateLimited('client-e', t0);
-    expect(isRateLimited('client-e', t0)).toBe(true);
-    const later = t0 + 61_000; // just past the 60s window
-    expect(isRateLimited('client-e', later)).toBe(false);
+  it('returns the origin when it is on the allow-list', () => {
+    const allowed = ['https://concourse26.vercel.app'];
+    expect(resolveAllowedOrigin('https://concourse26.vercel.app', allowed)).toBe('https://concourse26.vercel.app');
+  });
+
+  it('returns null for an origin not on the allow-list, denying it', () => {
+    const allowed = ['https://concourse26.vercel.app'];
+    expect(resolveAllowedOrigin('https://evil-scraper.example', allowed)).toBeNull();
   });
 });

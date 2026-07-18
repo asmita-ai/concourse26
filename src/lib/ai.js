@@ -1,25 +1,33 @@
 // src/lib/ai.js
 //
 // All AI calls go through /api/ai — a serverless function that holds the
-// LLM API key server-side (see /api/ai.js). The browser NEVER sees the key.
+// LLM API key server-side (see /api/ai.js). The browser NEVER sees the key,
+// and never needs the system prompts either — those live once, server-side,
+// in shared/systemPrompts.js.
 //
-// If /api/ai isn't reachable (no serverless backend, or no API key set),
-// we fall back to a local, input-aware "demo intelligence" layer so every
-// module still works live with zero setup. This is clearly labeled in the
-// UI (`source: 'demo'`) rather than pretending to be live.
-//
-// Note: the actual prompt text lives in shared/systemPrompts.js and is sent
-// to Gemini only by api/ai.js (the server). This file only needs the mode
-// names for validation, imported from the same shared module so the client
-// and server can never silently drift out of sync.
+// If /api/ai isn't reachable (no serverless backend, no API key set, or the
+// per-client rate limit was hit), we fall back to a local, input-aware
+// "demo intelligence" layer so every module still works live with zero
+// setup. This is clearly labeled in the UI (`source: 'demo'`) rather than
+// pretending to be live.
 
-import { ALLOWED_MODES } from '../../shared/systemPrompts.js';
-
-// In-session response cache: an identical (mode, prompt) pair within the
-// same page load reuses the prior result instead of re-calling the API —
-// a real efficiency win when a user re-clicks a preset or the same button
-// twice. Cleared automatically on page reload (plain in-memory Map).
+// In-memory cache for identical (mode, prompt) pairs within a session.
+// Keeps repeated demo clicks (e.g. re-testing the same starter preset)
+// from re-hitting the network or the rate limiter unnecessarily.
 const responseCache = new Map();
+const CACHE_LIMIT = 50;
+
+function cacheKey(mode, prompt) {
+  return `${mode}::${prompt}`;
+}
+
+function rememberResponse(key, value) {
+  if (responseCache.size >= CACHE_LIMIT) {
+    const oldestKey = responseCache.keys().next().value;
+    responseCache.delete(oldestKey);
+  }
+  responseCache.set(key, value);
+}
 
 async function callServerAI(mode, userPrompt) {
   const res = await fetch('/api/ai', {
@@ -80,12 +88,15 @@ function demoAccessPass(prompt) {
 }
 
 function demoWorkforce(venues) {
+  // Workforce.jsx sends { demandPct, staffOnSite } (not level/staff) — accept
+  // either shape so this stays correct regardless of which caller shape is used.
+  const demand = (v) => v.demandPct ?? v.level;
   const seed = hashSeed(JSON.stringify(venues));
-  const sorted = [...venues].sort((a, b) => b.level - a.level);
+  const sorted = [...venues].sort((a, b) => demand(b) - demand(a));
   const high = sorted[0];
   const low = sorted[sorted.length - 1];
   const count = 4 + (seed % 5);
-  return `Reallocate ~${count} stewards from ${low.name} (currently ${low.level}% demand, kickoff has passed) to ${high.name} (${high.level}% demand, gates opening soon). Same-region travel window is feasible before ${high.name}'s next surge. Confirm via the venue liaison before the next shift change.`;
+  return `Reallocate ~${count} stewards from ${low.name} (currently ${demand(low)}% demand, kickoff has passed) to ${high.name} (${demand(high)}% demand, gates opening soon). Same-region travel window is feasible before ${high.name}'s next surge. Confirm via the venue liaison before the next shift change.`;
 }
 
 function demoIncident(prompt) {
@@ -110,34 +121,18 @@ function demoSustainLedger(prompt) {
   return `Estimated CO2 saved on this leg: ~${co2} kg versus driving alone. Multiply that across a tournament with 16 venues and millions of traveling fans — every mode-shift like this adds up to a measurably lighter footprint for World Cup 2026 as a whole.`;
 }
 
-function runDemo(mode, prompt, payload) {
-  switch (mode) {
-    case 'journey': return demoJourney(prompt);
-    case 'crowdmesh': return demoCrowdMesh(payload);
-    case 'accesspass': return demoAccessPass(prompt);
-    case 'workforce': return demoWorkforce(payload);
-    case 'incident': return demoIncident(prompt);
-    case 'sustainledger': return demoSustainLedger(prompt);
-    default: return "I don't have a demo response configured for this module yet.";
-  }
-}
-
 /**
  * Unified entry point used by every module.
- * @param {string} mode - one of the six module keys (see shared/systemPrompts.js)
- * @param {string|object} payload - prompt string, or structured data (e.g. venue arrays)
+ * @param {string} mode - one of MODE_SYSTEM_PROMPTS keys
+ * @param {string|object} payload - prompt string, or structured data
  * @returns {Promise<{text: string, source: 'live'|'demo'}>}
  */
 export async function askAI(mode, payload) {
-  if (!ALLOWED_MODES.has(mode)) {
-    return { text: "I don't have a demo response configured for this module yet.", source: 'demo' };
-  }
-
   const prompt = typeof payload === 'string' ? payload : JSON.stringify(payload);
-  const cacheKey = `${mode}:${prompt}`;
-  if (responseCache.has(cacheKey)) {
-    return responseCache.get(cacheKey);
-  }
+  const key = cacheKey(mode, prompt);
+
+  const cached = responseCache.get(key);
+  if (cached) return { ...cached, cached: true };
 
   let result;
   try {
@@ -145,9 +140,24 @@ export async function askAI(mode, payload) {
     result = { text, source: 'live' };
   } catch {
     await new Promise((r) => setTimeout(r, 500 + Math.random() * 400));
-    result = { text: runDemo(mode, prompt, payload), source: 'demo' };
+    let text;
+    switch (mode) {
+      case 'journey': text = demoJourney(prompt); break;
+      case 'crowdmesh': text = demoCrowdMesh(payload); break;
+      case 'accesspass': text = demoAccessPass(prompt); break;
+      case 'workforce': text = demoWorkforce(payload); break;
+      case 'incident': text = demoIncident(prompt); break;
+      case 'sustainledger': text = demoSustainLedger(prompt); break;
+      default: text = "I don't have a demo response configured for this module yet.";
+    }
+    result = { text, source: 'demo' };
   }
 
-  responseCache.set(cacheKey, result);
+  rememberResponse(key, result);
   return result;
+}
+
+/** Test/dev utility to reset cache state between test cases. */
+export function _clearAICache() {
+  responseCache.clear();
 }

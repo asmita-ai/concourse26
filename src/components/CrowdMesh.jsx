@@ -1,6 +1,9 @@
 import React, { useState } from 'react';
-import { askAI } from '../lib/ai.js';
+import { useAIAction } from '../hooks/useAIAction.js';
 import { VENUES } from '../lib/venues.js';
+import { densityTier, DENSITY_THRESHOLDS } from '../lib/density.js';
+import ModuleIntro from './ModuleIntro.jsx';
+import AIOutputPanel, { aiTag } from './AIOutputPanel.jsx';
 
 function makeLevels() {
   // Simulate 8 currently "active matchday" venues out of the 16
@@ -8,41 +11,29 @@ function makeLevels() {
   return active.map((v) => ({ ...v, level: Math.floor(20 + Math.random() * 78) }));
 }
 
-function tier(level) {
-  if (level >= 75) return 'high';
-  if (level >= 45) return 'med';
-  return 'low';
-}
-
 export default function CrowdMesh() {
   const [venues, setVenues] = useState(makeLevels);
-  const [result, setResult] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [source, setSource] = useState(null);
+  const { loading, result, source, run, reset } = useAIAction();
 
-  function refresh() { setVenues(makeLevels()); setResult(null); }
+  function refresh() { setVenues(makeLevels()); reset(); }
 
-  async function analyze() {
-    setLoading(true);
-    const { text, source } = await askAI('crowdmesh', venues.map(({ id, name, country, level }) => ({ id, name, country, level })));
-    setResult(text);
-    setSource(source);
-    setLoading(false);
+  function analyze() {
+    run('crowdmesh', venues.map(({ id, name, country, level }) => ({ id, name, country, level })));
   }
 
   const avg = Math.round(venues.reduce((s, v) => s + v.level, 0) / venues.length);
-  const highCount = venues.filter((v) => v.level >= 75).length;
+  const highCount = venues.filter((v) => v.level >= DENSITY_THRESHOLDS.high).length;
 
   return (
     <div>
-      <p style={{ color: 'var(--ink-muted)', fontSize: 13, marginTop: 0 }}>
+      <ModuleIntro>
         Live density across multiple host cities at once — not one stadium in isolation. Watch for cascading risk between venues sharing a region or travel corridor.
-      </p>
+      </ModuleIntro>
       <div className="venue-grid">
         {venues.map((v) => (
           <div className="venue-tile" key={v.id} title={`${v.name}: ${v.level}%`}>
             <div className="vname"><span>{v.id}</span><span className={`pill ${v.country}`}><i />{v.level}%</span></div>
-            <div className="venue-bar"><div className={`venue-bar-fill ${tier(v.level)}`} style={{ width: `${v.level}%` }} /></div>
+            <div className="venue-bar"><div className={`venue-bar-fill ${densityTier(v.level)}`} style={{ width: `${v.level}%` }} /></div>
           </div>
         ))}
       </div>
@@ -58,10 +49,9 @@ export default function CrowdMesh() {
         </button>
       </div>
       {result && (
-        <div className="ai-output" role="status" aria-live="polite">
-          <span className="tag">{source === 'live' ? 'AI-generated analysis' : 'Demo intelligence'}</span>
+        <AIOutputPanel tag={aiTag(source, 'AI-generated analysis')}>
           {result}
-        </div>
+        </AIOutputPanel>
       )}
     </div>
   );

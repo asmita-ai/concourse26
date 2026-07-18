@@ -1,31 +1,27 @@
 import React, { useState } from 'react';
-import { askAI } from '../lib/ai.js';
+import { useAIAction } from '../hooks/useAIAction.js';
 import { VENUES } from '../lib/venues.js';
+import ModuleIntro from './ModuleIntro.jsx';
+import AIOutputPanel, { aiTag } from './AIOutputPanel.jsx';
 
 const PRESETS = ['Wheelchair access', 'Visually impaired, needs escort', 'Hearing assistance for alerts'];
 
 export default function AccessPassport() {
   const [need, setNeed] = useState('Wheelchair access');
   const [venue, setVenue] = useState('Toronto');
-  const [result, setResult] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [source, setSource] = useState(null);
   const [highContrast, setHighContrast] = useState(false);
   const [largeText, setLargeText] = useState(false);
+  const { loading, result, source, run } = useAIAction();
 
-  async function plan() {
-    setLoading(true);
-    const { text, source } = await askAI('accesspass', `Need: ${need}. Venue: ${venue}.`);
-    setResult(text);
-    setSource(source);
-    setLoading(false);
+  function plan() {
+    run('accesspass', `Need: ${need}. Venue: ${venue}.`);
   }
 
   return (
     <div>
-      <p style={{ color: 'var(--ink-muted)', fontSize: 13, marginTop: 0 }}>
-        A fan&apos;s accessibility profile travels with them — regenerated for whichever of the 16 venues they&apos;re headed to next.
-      </p>
+      <ModuleIntro>
+        A fan&rsquo;s accessibility profile travels with them — regenerated for whichever of the 16 venues they&rsquo;re headed to next.
+      </ModuleIntro>
       <div className="grid-2">
         <div>
           <label className="field-label" htmlFor="ap-need">Accessibility need</label>
@@ -35,7 +31,7 @@ export default function AccessPassport() {
           </div>
         </div>
         <div>
-          <label className="field-label" htmlFor="ap-venue">Next venue on this fan&apos;s itinerary</label>
+          <label className="field-label" htmlFor="ap-venue">Next venue on this fan&rsquo;s itinerary</label>
           <select id="ap-venue" value={venue} onChange={(e) => setVenue(e.target.value)}>
             {VENUES.map((v) => <option key={v.id}>{v.name}</option>)}
           </select>
@@ -55,10 +51,12 @@ export default function AccessPassport() {
       </div>
 
       {result && (
-        <div className="ai-output" role="status" aria-live="polite" style={{ fontSize: largeText ? 17 : 14, background: highContrast ? '#000' : undefined, color: highContrast ? '#FFF200' : undefined }}>
-          <span className="tag">{source === 'live' ? 'AI-generated plan' : 'Demo intelligence'}</span>
+        <AIOutputPanel
+          tag={aiTag(source, 'AI-generated plan')}
+          style={{ fontSize: largeText ? 17 : 14, background: highContrast ? '#000' : undefined, color: highContrast ? '#FFF200' : undefined }}
+        >
           {result}
-        </div>
+        </AIOutputPanel>
       )}
     </div>
   );

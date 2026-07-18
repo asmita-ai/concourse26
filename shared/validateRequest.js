@@ -1,80 +1,108 @@
 // shared/validateRequest.js
 //
-// Pure validation/sanitization logic, deliberately separated from api/ai.js
-// so it can be unit-tested directly without spinning up a serverless
-// handler or mocking `req`/`res`. Kept dependency-free on purpose.
-
-import { ALLOWED_MODES } from './systemPrompts.js';
+// Pure, unit-tested request handling for api/ai.js:
+//   1. sanitizePrompt   — strips control characters, enforces a length cap,
+//                         preserves unicode (so multilingual input still works)
+//   2. validateBody     — checks { mode, prompt } shape against the allowed
+//                         mode list
+//   3. RateLimiter       — a small sliding-window limiter, given its own Map
+//                         so it's easy to test in isolation and easy to
+//                         instantiate fresh per serverless function instance
+//
+// KNOWN TRADEOFF: the rate limiter's state is in-memory, scoped to a single
+// serverless function instance. Vercel can run multiple concurrent instances,
+// and instances are ephemeral across cold starts, so this is a meaningful
+// deterrent against casual single-client abuse, not a strict global limit.
+// A production deployment would back this with a shared store (e.g.
+// Redis/Upstash) instead.
 
 const MAX_PROMPT_LENGTH = 4000;
 
-// Strips control/non-printable characters (defense against header-injection
-// style abuse and malformed input) without touching legitimate unicode
-// (accents, non-Latin scripts) needed for the multilingual concierge.
-function stripControlChars(str) {
+/**
+ * Strip ASCII control characters (except \n and \t) while leaving all
+ * unicode content — including non-Latin scripts used by multilingual
+ * fans — fully intact, and cap the length.
+ * @param {string} input
+ * @returns {string}
+ */
+export function sanitizePrompt(input) {
+  if (typeof input !== 'string') return '';
   // eslint-disable-next-line no-control-regex
-  return str.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+  const stripped = input.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+  return stripped.slice(0, MAX_PROMPT_LENGTH);
 }
 
 /**
- * Validates and sanitizes an incoming { mode, prompt } request body.
- * @returns {{ ok: true, mode: string, prompt: string } | { ok: false, status: number, error: string }}
+ * Validate the shape of an incoming { mode, prompt } request body.
+ * @param {unknown} body
+ * @param {Set<string>} allowedModes
+ * @returns {{ ok: true, mode: string, prompt: string } | { ok: false, error: string }}
  */
-export function validateRequest(body) {
+export function validateBody(body, allowedModes) {
   if (!body || typeof body !== 'object') {
-    return { ok: false, status: 400, error: 'Invalid request body' };
+    return { ok: false, error: 'Request body must be a JSON object' };
   }
-
   const { mode, prompt } = body;
-
-  if (typeof mode !== 'string' || !ALLOWED_MODES.has(mode)) {
-    return { ok: false, status: 400, error: 'Unknown mode' };
+  if (typeof mode !== 'string' || !allowedModes.has(mode)) {
+    return { ok: false, error: 'Unknown or missing mode' };
   }
-
-  if (typeof prompt !== 'string' || prompt.length === 0) {
-    return { ok: false, status: 400, error: 'Invalid prompt' };
+  if (typeof prompt !== 'string' || prompt.trim().length === 0) {
+    return { ok: false, error: 'Missing prompt' };
   }
-
-  const cleaned = stripControlChars(prompt).trim();
-
-  if (cleaned.length === 0) {
-    return { ok: false, status: 400, error: 'Prompt is empty after sanitization' };
+  const clean = sanitizePrompt(prompt);
+  if (clean.length === 0) {
+    return { ok: false, error: 'Prompt was empty after sanitization' };
   }
-  if (cleaned.length > MAX_PROMPT_LENGTH) {
-    return { ok: false, status: 400, error: 'Prompt exceeds maximum length' };
-  }
-
-  return { ok: true, mode, prompt: cleaned };
+  return { ok: true, mode, prompt: clean };
 }
 
 /**
- * Minimal in-memory sliding-window rate limiter.
- *
- * LIMITATION (documented intentionally, not hidden): Vercel serverless
- * functions are stateless across cold starts and can run as multiple
- * concurrent instances, so this in-memory map does NOT provide a strict
- * global rate limit — a determined attacker could exceed it by hitting
- * different instances. For a hackathon-scale demo this still meaningfully
- * blocks casual abuse/loops from a single warm instance; a production
- * deployment would back this with Redis/Upstash or Vercel's Edge Config
- * instead. Kept simple and dependency-free here on purpose.
+ * Small sliding-window rate limiter. Each instance owns its own store, so
+ * tests (and each serverless function instance) get fresh, isolated state.
  */
-const requestLog = new Map(); // key -> array of timestamps (ms)
-const WINDOW_MS = 60_000;
-const MAX_REQUESTS_PER_WINDOW = 20;
-
-export function isRateLimited(key, now = Date.now()) {
-  const timestamps = (requestLog.get(key) || []).filter((t) => now - t < WINDOW_MS);
-  if (timestamps.length >= MAX_REQUESTS_PER_WINDOW) {
-    requestLog.set(key, timestamps);
-    return true;
+export class RateLimiter {
+  /**
+   * @param {{ limit?: number, windowMs?: number, store?: Map<string, number[]> }} [opts]
+   */
+  constructor({ limit = 20, windowMs = 60_000, store = new Map() } = {}) {
+    this.limit = limit;
+    this.windowMs = windowMs;
+    this.store = store;
   }
-  timestamps.push(now);
-  requestLog.set(key, timestamps);
-  return false;
+
+  /**
+   * @param {string} key - typically the client IP
+   * @param {number} [now]
+   * @returns {{ allowed: boolean, remaining: number, retryAfterMs: number }}
+   */
+  check(key, now = Date.now()) {
+    const windowStart = now - this.windowMs;
+    const timestamps = (this.store.get(key) || []).filter((t) => t > windowStart);
+
+    if (timestamps.length >= this.limit) {
+      const retryAfterMs = timestamps[0] + this.windowMs - now;
+      this.store.set(key, timestamps);
+      return { allowed: false, remaining: 0, retryAfterMs: Math.max(retryAfterMs, 0) };
+    }
+
+    timestamps.push(now);
+    this.store.set(key, timestamps);
+    return { allowed: true, remaining: this.limit - timestamps.length, retryAfterMs: 0 };
+  }
 }
 
-// Exposed for tests only, to reset state between test cases.
-export function __resetRateLimitStateForTests() {
-  requestLog.clear();
+/**
+ * Decide whether a request's Origin header should be allowed to call the
+ * API, instead of the blanket `Access-Control-Allow-Origin: *` this project
+ * originally shipped with (which let any website spend the deployment's
+ * Gemini quota). Same-origin browser requests to a Vercel deployment don't
+ * send an Origin header that needs special-casing at all; this only matters
+ * for cross-origin callers, which we don't want to allow by default.
+ * @param {string | undefined} origin
+ * @param {string[]} allowedOrigins
+ * @returns {string | null} the origin to echo back, or null to omit the header (deny)
+ */
+export function resolveAllowedOrigin(origin, allowedOrigins) {
+  if (!origin) return null;
+  return allowedOrigins.includes(origin) ? origin : null;
 }

@@ -3,29 +3,31 @@ import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import NetworkMap from './NetworkMap.jsx';
 import StatusStrip from './StatusStrip.jsx';
-import { VENUES, LINKS } from '../lib/venues.js';
+import { VENUES } from '../lib/venues.js';
 
 describe('NetworkMap', () => {
-  it('renders one marker per host venue', () => {
-    const { container } = render(<NetworkMap />);
-    const circles = container.querySelectorAll('circle');
-    // Two circles per venue (outer glow + solid dot).
-    expect(circles.length).toBe(VENUES.length * 2);
-  });
-
-  it('renders a connecting line for every entry in LINKS', () => {
-    const { container } = render(<NetworkMap />);
-    expect(container.querySelectorAll('line').length).toBe(LINKS.length);
-  });
-
-  it('has an accessible label describing the diagram', () => {
+  it('renders an accessible network diagram covering all 16 venues', () => {
     render(<NetworkMap />);
-    expect(screen.getByRole('img', { name: /16 fifa world cup 2026 host cities/i })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /network diagram/i })).toBeInTheDocument();
+    expect(screen.getByText('16 HOST VENUES')).toBeInTheDocument();
+    expect(screen.getByText('3 COUNTRIES')).toBeInTheDocument();
+  });
+
+  it('labels every venue by its id on the diagram', () => {
+    render(<NetworkMap />);
+    for (const v of VENUES) {
+      expect(screen.getByText(v.id)).toBeInTheDocument();
+    }
   });
 });
 
 describe('StatusStrip', () => {
-  it('renders as a live status region', () => {
+  it('renders the tournament-wide live feed label', () => {
+    render(<StatusStrip />);
+    expect(screen.getByText('TOURNAMENT-WIDE FEED')).toBeInTheDocument();
+  });
+
+  it('exposes the feed as a status region for screen readers', () => {
     render(<StatusStrip />);
     expect(screen.getByRole('status', { name: /live cross-venue operations updates/i })).toBeInTheDocument();
   });

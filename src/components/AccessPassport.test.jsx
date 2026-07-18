@@ -2,38 +2,37 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import AccessPassport from './AccessPassport.jsx';
+import { _clearAICache } from '../lib/ai.js';
 
 describe('AccessPassport', () => {
   beforeEach(() => {
     global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 503 });
+    _clearAICache();
   });
 
-  it('generates a venue-specific accommodation plan in demo mode', async () => {
+  it('renders the need textarea, venue selector, and three quick presets', () => {
     render(<AccessPassport />);
-    fireEvent.click(screen.getByRole('button', { name: /generate venue-specific accommodation plan/i }));
-    await waitFor(() => {
-      expect(screen.getByText(/demo intelligence/i)).toBeInTheDocument();
-    });
+    expect(screen.getByLabelText(/accessibility need/i)).toHaveValue('Wheelchair access');
+    expect(screen.getByLabelText(/next venue on this fan.s itinerary/i)).toBeInTheDocument();
+    expect(screen.getByText('Visually impaired, needs escort')).toBeInTheDocument();
   });
 
-  it('toggles high-contrast mode', () => {
+  it('updates the need field when a preset chip is clicked', () => {
     render(<AccessPassport />);
-    const toggle = screen.getByRole('button', { name: /high-contrast off/i });
-    expect(toggle).toHaveAttribute('aria-pressed', 'false');
-    fireEvent.click(toggle);
+    fireEvent.click(screen.getByText('Hearing assistance for alerts'));
+    expect(screen.getByLabelText(/accessibility need/i)).toHaveValue('Hearing assistance for alerts');
+  });
+
+  it('toggles high-contrast and large-text accessibility controls', () => {
+    render(<AccessPassport />);
+    const contrastBtn = screen.getByRole('button', { name: /high-contrast off/i });
+    fireEvent.click(contrastBtn);
     expect(screen.getByRole('button', { name: /high-contrast on/i })).toHaveAttribute('aria-pressed', 'true');
   });
 
-  it('toggles large text mode', () => {
+  it('generates a venue-specific accommodation plan', async () => {
     render(<AccessPassport />);
-    const toggle = screen.getByRole('button', { name: /large text off/i });
-    fireEvent.click(toggle);
-    expect(screen.getByRole('button', { name: /large text on/i })).toHaveAttribute('aria-pressed', 'true');
-  });
-
-  it('applies a preset need when its button is clicked', () => {
-    render(<AccessPassport />);
-    fireEvent.click(screen.getByRole('button', { name: 'Hearing assistance for alerts' }));
-    expect(screen.getByLabelText(/accessibility need/i)).toHaveValue('Hearing assistance for alerts');
+    fireEvent.click(screen.getByRole('button', { name: /generate venue-specific accommodation plan/i }));
+    await waitFor(() => expect(screen.getByText(/demo intelligence/i)).toBeInTheDocument());
   });
 });

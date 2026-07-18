@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { askAI } from '../lib/ai.js';
 import { VENUES } from '../lib/venues.js';
+import ModuleIntro from './ModuleIntro.jsx';
+import AIOutputPanel, { aiTag } from './AIOutputPanel.jsx';
 
 export default function IncidentCorrelation() {
   const [venue, setVenue] = useState('Atlanta');
@@ -8,6 +10,9 @@ export default function IncidentCorrelation() {
   const [log, setLog] = useState([]);
   const [loading, setLoading] = useState(false);
 
+  // IncidentCorrelation keeps a running log of past triages rather than a
+  // single latest result, so it calls askAI directly instead of the
+  // useAIAction hook (which is built around "one result at a time").
   async function submit() {
     const text = report.trim();
     if (!text || loading) return;
@@ -20,9 +25,9 @@ export default function IncidentCorrelation() {
 
   return (
     <div>
-      <p style={{ color: 'var(--ink-muted)', fontSize: 13, marginTop: 0 }}>
+      <ModuleIntro>
         Triages a single report and flags whether the same pattern is worth watching for at <em>other</em> host cities today.
-      </p>
+      </ModuleIntro>
       <div className="grid-2">
         <div>
           <label className="field-label" htmlFor="ic-venue">Venue</label>
@@ -42,11 +47,14 @@ export default function IncidentCorrelation() {
       {log.length > 0 && (
         <div style={{ marginTop: 18 }}>
           {log.map((entry, i) => (
-            <div className="ai-output" role="status" aria-live="polite" key={i} style={{ marginBottom: 10 }}>
-              <span className="tag">{entry.venue} · {entry.time} · {entry.source === 'live' ? 'AI triage' : 'Demo intelligence'}</span>
-              <div style={{ color: 'var(--ink-muted)', fontSize: 13, marginBottom: 6 }}>&quot;{entry.text}&quot;</div>
+            <AIOutputPanel
+              key={i}
+              tag={`${entry.venue} · ${entry.time} · ${aiTag(entry.source, 'AI triage')}`}
+              style={{ marginBottom: 10 }}
+            >
+              <div style={{ color: 'var(--ink-muted)', fontSize: 13, marginBottom: 6 }}>&ldquo;{entry.text}&rdquo;</div>
               {entry.reply}
-            </div>
+            </AIOutputPanel>
           ))}
         </div>
       )}

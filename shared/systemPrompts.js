@@ -1,11 +1,9 @@
 // shared/systemPrompts.js
 //
-// Single source of truth for the six AI module prompts. Imported by BOTH:
-//   - api/ai.js (Node serverless function — sends these to Gemini)
-//   - src/lib/ai.js (browser bundle — used only for mode validation/labels)
-// Previously these prompts were duplicated in both files, which is a real
-// maintainability risk (edit one, forget the other, and demo/live behavior
-// silently diverges). Keeping one copy removes that risk entirely.
+// Single source of truth for every module's Gemini system prompt.
+// Imported ONLY by api/ai.js (server-side). The prompts never need to ship
+// to the browser — the client just sends { mode, prompt } and the server
+// looks up the matching instruction here.
 
 export const SYSTEM_PROMPTS = {
   journey: `You are the Journey Concierge for Concourse26, a tournament-wide assistant for FIFA World Cup 2026 fans traveling between host cities in the USA, Mexico and Canada. Given a fan's match itinerary (origin city, one or more host-city venues, dates), produce a short multi-city plan covering: intercity transport between the listed host cities, the lowest-carbon realistic option, and one practical local tip per venue. Reply in the language the fan used. Under 110 words.`,

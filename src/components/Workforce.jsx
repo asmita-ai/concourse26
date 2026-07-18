@@ -1,6 +1,9 @@
 import React, { useState } from 'react';
-import { askAI } from '../lib/ai.js';
+import { useAIAction } from '../hooks/useAIAction.js';
 import { VENUES } from '../lib/venues.js';
+import { densityTier } from '../lib/density.js';
+import ModuleIntro from './ModuleIntro.jsx';
+import AIOutputPanel, { aiTag } from './AIOutputPanel.jsx';
 
 function makeDemand() {
   const active = VENUES.slice(4, 10);
@@ -9,25 +12,19 @@ function makeDemand() {
 
 export default function Workforce() {
   const [venues, setVenues] = useState(makeDemand);
-  const [result, setResult] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [source, setSource] = useState(null);
+  const { loading, result, source, run, reset } = useAIAction();
 
-  function refresh() { setVenues(makeDemand()); setResult(null); }
+  function refresh() { setVenues(makeDemand()); reset(); }
 
-  async function analyze() {
-    setLoading(true);
-    const { text, source } = await askAI('workforce', venues.map(({ id, name, country, level, staff }) => ({ id, name, country, demandPct: level, staffOnSite: staff })));
-    setResult(text);
-    setSource(source);
-    setLoading(false);
+  function analyze() {
+    run('workforce', venues.map(({ id, name, country, level, staff }) => ({ id, name, country, demandPct: level, staffOnSite: staff })));
   }
 
   return (
     <div>
-      <p style={{ color: 'var(--ink-muted)', fontSize: 13, marginTop: 0 }}>
+      <ModuleIntro>
         Reallocates volunteers and stewards <em>between</em> venues and matchdays, not just within one stadium.
-      </p>
+      </ModuleIntro>
       <div className="grid-3">
         {venues.map((v) => (
           <div key={v.id} className="venue-tile">
@@ -35,7 +32,7 @@ export default function Workforce() {
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--ink-muted)', marginBottom: 6 }}>
               Demand {v.level}% · Staff {v.staff}
             </div>
-            <div className="venue-bar"><div className={`venue-bar-fill ${v.level >= 75 ? 'high' : v.level >= 45 ? 'med' : 'low'}`} style={{ width: `${v.level}%` }} /></div>
+            <div className="venue-bar"><div className={`venue-bar-fill ${densityTier(v.level)}`} style={{ width: `${v.level}%` }} /></div>
           </div>
         ))}
       </div>
@@ -46,10 +43,9 @@ export default function Workforce() {
         </button>
       </div>
       {result && (
-        <div className="ai-output" role="status" aria-live="polite">
-          <span className="tag">{source === 'live' ? 'AI-generated plan' : 'Demo intelligence'}</span>
+        <AIOutputPanel tag={aiTag(source, 'AI-generated plan')}>
           {result}
-        </div>
+        </AIOutputPanel>
       )}
     </div>
   );

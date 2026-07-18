@@ -1,11 +1,9 @@
-import React, { useState, useMemo, lazy, Suspense } from 'react';
+import React, { useState, Suspense, lazy } from 'react';
 import NetworkMap from './components/NetworkMap.jsx';
 import StatusStrip from './components/StatusStrip.jsx';
 
-// Module panels are lazy-loaded: only the active tab's code downloads and
-// executes on first paint, instead of shipping all six modules' JS upfront.
-// This is a real efficiency win since a visitor typically explores 1-2
-// modules, not all six, in a single session.
+// Each module is its own lazy chunk: only the active tab's JS downloads and
+// executes on first paint, instead of shipping all six modules upfront.
 const JourneyConcierge = lazy(() => import('./components/JourneyConcierge.jsx'));
 const CrowdMesh = lazy(() => import('./components/CrowdMesh.jsx'));
 const AccessPassport = lazy(() => import('./components/AccessPassport.jsx'));
@@ -24,11 +22,10 @@ const FEEDS = [
 
 export default function App() {
   const [active, setActive] = useState(FEEDS[0].key);
-  const feed = useMemo(() => FEEDS.find((f) => f.key === active), [active]);
+  const feed = FEEDS.find((f) => f.key === active);
 
   return (
     <>
-      <a href="#main-console" className="skip-link">Skip to console</a>
       <header className="topbar">
         <div className="topbar-inner">
           <div className="brand">
@@ -41,7 +38,7 @@ export default function App() {
           <nav aria-label="Primary">
             <a href="#modules">MODULES</a>
             <a href="#about">ABOUT</a>
-            <a href="https://github.com" target="_blank" rel="noreferrer">GITHUB</a>
+            <a href="https://github.com/asmita-ai/concourse26" target="_blank" rel="noreferrer">GITHUB</a>
           </nav>
         </div>
       </header>
@@ -53,7 +50,7 @@ export default function App() {
             <h1>One tournament. Sixteen cities. <span>One intelligence layer.</span></h1>
             <p className="lede">
               Concourse26 is a GenAI operations layer built for the reality of FIFA World Cup
-              2026: fans, staff and incidents don&apos;t stay inside one stadium — they move between
+              2026: fans, staff and incidents don&rsquo;t stay inside one stadium — they move between
               16 venues across the USA, Mexico and Canada. Most tools treat each stadium in
               isolation. Concourse26 connects them.
             </p>
@@ -73,8 +70,7 @@ export default function App() {
 
       <StatusStrip />
 
-      <section className="feeds" id="modules" aria-label="AI module console">
-        <div id="main-console" />
+      <section className="feeds" id="modules">
         <div className="container">
           <div className="feeds-head">
             <div className="kicker">Ops console</div>
@@ -106,7 +102,7 @@ export default function App() {
               <span className="live-tag"><span className="dot" aria-hidden="true" />LIVE</span>
             </div>
             <div className="panel-body">
-              <Suspense fallback={<p role="status" style={{ color: 'var(--ink-faint)', fontFamily: 'var(--font-mono)', fontSize: 13 }}>Loading module…</p>}>
+              <Suspense fallback={<div className="module-loading" role="status">Loading module…</div>}>
                 <feed.Component />
               </Suspense>
             </div>
@@ -117,23 +113,23 @@ export default function App() {
       <section id="about" className="container" style={{ padding: '20px 24px 60px' }}>
         <div className="panel">
           <div className="panel-head">
-            <div><span className="feed-id">ABOUT THE BUILD</span><h3>Why cross-venue, and how it&apos;s built</h3></div>
+            <div><span className="feed-id">ABOUT THE BUILD</span><h3>Why cross-venue, and how it&rsquo;s built</h3></div>
           </div>
           <div className="panel-body about-grid">
             <div>
               <strong>The real problem.</strong> World Cup 2026 is the first tournament ever
-              spread across three nations and 16 cities. A fan&apos;s ticket itinerary, a
-              volunteer&apos;s shift, and an incident report can all span more than one venue —
+              spread across three nations and 16 cities. A fan&rsquo;s ticket itinerary, a
+              volunteer&rsquo;s shift, and an incident report can all span more than one venue —
               yet most stadium tools are built as if each venue exists alone.
             </div>
             <div>
               <strong>Security-first AI.</strong> Every AI call routes through a serverless
               function (<code>/api/ai</code>) that holds the model API key server-side. The
-              browser never sees it — only the model&apos;s text response.
+              browser never sees it — only the model&rsquo;s text response.
             </div>
             <div>
               <strong>Works with or without a key.</strong> If no API key is configured, each
-              module automatically falls back to a local &quot;demo intelligence&quot; layer, clearly
+              module automatically falls back to a local &ldquo;demo intelligence&rdquo; layer, clearly
               labeled in the UI, so the console stays fully interactive for anyone testing it.
             </div>
             <div>

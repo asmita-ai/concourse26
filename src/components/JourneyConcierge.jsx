@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
-import { askAI } from '../lib/ai.js';
+import { useAIAction } from '../hooks/useAIAction.js';
 import { VENUES, COUNTRY_NAMES } from '../lib/venues.js';
+import ModuleIntro from './ModuleIntro.jsx';
+import AIOutputPanel, { aiTag } from './AIOutputPanel.jsx';
 
 const STARTERS = [
   { origin: 'Chicago', legs: ['Dallas', 'Atlanta'], note: 'Group stage then Round of 16, 5 days apart' },
@@ -13,23 +15,16 @@ export default function JourneyConcierge() {
   const [venueA, setVenueA] = useState('Dallas');
   const [venueB, setVenueB] = useState('Atlanta');
   const [note, setNote] = useState('Group stage match, then a Round of 16 match 5 days later');
-  const [result, setResult] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [source, setSource] = useState(null);
+  const { loading, result, source, run } = useAIAction();
 
-  async function plan(preset) {
+  function plan(preset) {
     const o = preset?.origin ?? origin;
     const a = preset?.legs?.[0] ?? venueA;
     const b = preset?.legs?.[1] ?? venueB;
     const n = preset?.note ?? note;
     if (preset) { setOrigin(o); setVenueA(a); setVenueB(b); setNote(n); }
-    setLoading(true);
-    setResult(null);
     const prompt = `Origin: ${o}. Itinerary: ${a} then ${b}. Notes: ${n}.`;
-    const { text, source } = await askAI('journey', prompt);
-    setResult(text);
-    setSource(source);
-    setLoading(false);
+    run('journey', prompt);
   }
 
   const cA = VENUES.find((v) => v.name === venueA)?.country;
@@ -37,9 +32,9 @@ export default function JourneyConcierge() {
 
   return (
     <div>
-      <p style={{ color: 'var(--ink-muted)', fontSize: 13, marginTop: 0 }}>
-        One plan spanning a fan&apos;s whole tournament — not four separate tools for routing, transport, sustainability and language.
-      </p>
+      <ModuleIntro>
+        One plan spanning a fan&rsquo;s whole tournament — not four separate tools for routing, transport, sustainability and language.
+      </ModuleIntro>
       <div className="grid-3">
         <div>
           <label className="field-label" htmlFor="jc-origin">Traveling from</label>
@@ -73,10 +68,9 @@ export default function JourneyConcierge() {
         ))}
       </div>
       {result && (
-        <div className="ai-output" role="status" aria-live="polite">
-          <span className="tag">{source === 'live' ? 'AI-generated journey plan' : 'Demo intelligence'}</span>
+        <AIOutputPanel tag={aiTag(source, 'AI-generated journey plan')}>
           {result}
-        </div>
+        </AIOutputPanel>
       )}
     </div>
   );
