@@ -42,9 +42,9 @@ export default function IncidentCorrelation() {
       {log.length > 0 && (
         <div style={{ marginTop: 18 }}>
           {log.map((entry, i) => (
-            <div className="ai-output" key={i} style={{ marginBottom: 10 }}>
+            <div className="ai-output" role="status" aria-live="polite" key={i} style={{ marginBottom: 10 }}>
               <span className="tag">{entry.venue} · {entry.time} · {entry.source === 'live' ? 'AI triage' : 'Demo intelligence'}</span>
-              <div style={{ color: 'var(--ink-muted)', fontSize: 13, marginBottom: 6 }}>"{entry.text}"</div>
+              <div style={{ color: 'var(--ink-muted)', fontSize: 13, marginBottom: 6 }}>&quot;{entry.text}&quot;</div>
               {entry.reply}
             </div>
           ))}

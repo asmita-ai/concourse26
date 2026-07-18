@@ -48,7 +48,7 @@ export default function SustainLedger() {
         {loading ? 'Calculating…' : 'Estimate impact'}
       </button>
       {result && (
-        <div className="ai-output">
+        <div className="ai-output" role="status" aria-live="polite">
           <span className="tag">{source === 'live' ? 'AI-generated estimate' : 'Demo intelligence'}</span>
           {result}
         </div>

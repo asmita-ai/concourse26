@@ -46,7 +46,7 @@ export default function Workforce() {
         </button>
       </div>
       {result && (
-        <div className="ai-output">
+        <div className="ai-output" role="status" aria-live="polite">
           <span className="tag">{source === 'live' ? 'AI-generated plan' : 'Demo intelligence'}</span>
           {result}
         </div>

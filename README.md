@@ -44,27 +44,33 @@ Browser (React/Vite SPA)
 Google Gemini API (gemini-3.5-flash)
 ```
 
-**Security.** The model API key is never bundled into frontend JS and never sent to the browser. It lives only in the serverless function's environment variables. The client only talks to `/api/ai`, which validates the request (`mode` allow-list, prompt length cap, CORS, method check) before forwarding it upstream.
+**Security.** The model API key is never bundled into frontend JS and never sent to the browser. It lives only in the serverless function's environment variables. The client only talks to `/api/ai`, which validates and sanitizes every request (`mode` allow-list, prompt length cap, control-character stripping, CORS, method check — see `shared/validateRequest.js`) before forwarding it upstream, and applies a per-client rate limit (429 responses beyond 20 requests/minute). The deployment also sets explicit HTTP security headers (`vercel.json`): a restrictive Content-Security-Policy, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, and a locked-down Permissions-Policy.
 
-**Resilience / testing.** If no `GEMINI_API_KEY` is configured (e.g. a judge clones the repo with zero setup), `/api/ai` returns `503` and the frontend automatically falls back to a local, input-aware "demo intelligence" layer (`src/lib/ai.js`) — clearly labeled `Demo intelligence` in the UI rather than pretending to be live. Every module stays fully interactive either way, and this fallback path is unit-tested.
+**Resilience / testing.** If no `GEMINI_API_KEY` is configured (e.g. a judge clones the repo with zero setup), `/api/ai` returns `503` and the frontend automatically falls back to a local, input-aware "demo intelligence" layer (`src/lib/ai.js`) — clearly labeled `Demo intelligence` in the UI rather than pretending to be live. Every module stays fully interactive either way. The project has **53 automated tests across 11 test files** — every one of the six modules has dedicated component tests, the shared validation/rate-limiting logic is tested in isolation, the 16-venue dataset has integrity tests, and the codebase passes `eslint` with zero errors or warnings.
 
-**Efficiency.** No heavy UI framework — hand-written CSS with design tokens, a single small React tree, one shared AI-calling function reused by all six modules. Production build is ~56 KB gzipped JS.
+**Efficiency.** No heavy UI framework — hand-written CSS with design tokens and one shared AI-calling function reused by all six modules. Each module is also **code-split via `React.lazy`**, so only the active tab's JS (1–3 KB gzipped per module) downloads and executes on first paint instead of shipping all six modules upfront; the shared runtime is ~51 KB gzipped. Identical repeated AI queries within a session are served from an in-memory response cache instead of re-calling the API.
 
-**Accessibility.** Keyboard-operable tabs (`role="tab"`/`aria-selected`), visible focus rings, `aria-label`s on inputs, maps, and live regions, `prefers-reduced-motion` support, and a high-contrast/large-text toggle built directly into the Accessibility Passport module.
+**Accessibility.** A skip-to-console link for keyboard users, keyboard-operable tabs (`role="tab"`/`aria-selected`), visible focus rings, `aria-label`s on inputs/maps, `aria-live="polite"` regions so AI responses are announced to screen readers as they arrive, `prefers-reduced-motion` support, and a high-contrast/large-text toggle built directly into the Accessibility Passport module.
 
 **Project structure:**
 
 ```
-├── api/ai.js                    # Serverless proxy to Gemini (key stays server-side)
+├── api/ai.js                      # Serverless proxy to Gemini (key stays server-side)
+├── shared/
+│   ├── systemPrompts.js           # Single source of truth for prompts (no client/server duplication)
+│   ├── validateRequest.js         # Pure, unit-tested request validation + rate limiting
+│   └── validateRequest.test.js
 ├── src/
-│   ├── App.jsx                  # Console shell / module-tab layout
-│   ├── styles.css               # Design tokens + all styling
-│   ├── lib/ai.js                # Shared AI client + demo-mode fallback
-│   ├── lib/ai.test.js           # Unit tests for AI logic (all 6 modes)
-│   ├── lib/venues.js            # Real 16-host-city data + network-map layout
-│   ├── App.test.jsx             # Component test for module tab switching
-│   └── components/              # NetworkMap, StatusStrip, and one per module
-├── vercel.json                   # SPA rewrite rules
+│   ├── App.jsx                    # Console shell / lazy-loaded module-tab layout
+│   ├── styles.css                 # Design tokens + all styling
+│   ├── lib/ai.js                  # Shared AI client + demo-mode fallback + response cache
+│   ├── lib/ai.test.js
+│   ├── lib/venues.js              # Real 16-host-city data + network-map layout
+│   ├── lib/venues.test.js         # Data-integrity tests for the venue dataset
+│   ├── App.test.jsx
+│   └── components/                # NetworkMap, StatusStrip, and one per module — each with its own *.test.jsx
+├── eslint.config.js                # Zero-warning lint config (React + Hooks rules)
+├── vercel.json                     # SPA rewrite rules + HTTP security headers
 └── .env.example
 ```
 
@@ -74,6 +80,7 @@ Google Gemini API (gemini-3.5-flash)
 - The inter-city "links" shown in the network diagram are illustrative fan-travel corridors between geographically nearby host cities, not an actual published transit schedule.
 - Match itineraries, venue assignments, and incident reports entered by a user are treated as hypothetical scenarios for demonstration, not real fan or staff data.
 - Where a judge runs this with no Gemini API key configured, all outputs are clearly labeled `Demo intelligence` rather than silently faking a live AI response — this was a deliberate design choice for transparency and gradeability with zero setup.
+- The per-client rate limit on `/api/ai` uses in-memory state scoped to a single serverless function instance. Vercel can run multiple concurrent instances and instances are ephemeral across cold starts, so this is a meaningful deterrent against casual abuse from one client, not a strict global limit — a production deployment would back this with a shared store (e.g. Redis/Upstash) instead. This tradeoff is documented directly in `shared/validateRequest.js`.
 
 ## Run it locally
 
@@ -97,10 +104,15 @@ Everything works without an API key — you'll see `Demo intelligence` on AI out
 
 ## Testing
 
+53 tests across 11 files:
+
+- `shared/validateRequest.test.js` — 14 tests covering request validation, control-character sanitization, unicode preservation for multilingual input, and the rate limiter's sliding window.
 - `src/lib/ai.test.js` — 7 tests covering the demo-mode fallback for all six modules, including that incident triage correctly classifies a security report as Critical severity and identifies the correct highest-density venue in crowd analysis.
+- `src/lib/venues.test.js` — 6 data-integrity tests for the 16-venue dataset (unique ids, all three countries represented, no dangling links).
+- `src/components/*.test.jsx` — dedicated tests for every one of the six modules plus NetworkMap/StatusStrip, covering rendering, presets, form interaction, keyboard submission, and demo-mode labeling.
 - `src/App.test.jsx` — verifies the console renders all six modules, that tab switching updates the active panel, and that the 16-venue network diagram renders.
 
-Run with `npm test`.
+Run with `npm test`. Run `npm run lint` for the zero-warning ESLint check (React + Hooks rules).
 
 ## Roadmap (beyond hackathon scope)
 

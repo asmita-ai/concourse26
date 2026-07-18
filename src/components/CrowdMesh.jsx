@@ -58,7 +58,7 @@ export default function CrowdMesh() {
         </button>
       </div>
       {result && (
-        <div className="ai-output">
+        <div className="ai-output" role="status" aria-live="polite">
           <span className="tag">{source === 'live' ? 'AI-generated analysis' : 'Demo intelligence'}</span>
           {result}
         </div>

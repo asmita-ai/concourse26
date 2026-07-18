@@ -7,15 +7,19 @@
 // we fall back to a local, input-aware "demo intelligence" layer so every
 // module still works live with zero setup. This is clearly labeled in the
 // UI (`source: 'demo'`) rather than pretending to be live.
+//
+// Note: the actual prompt text lives in shared/systemPrompts.js and is sent
+// to Gemini only by api/ai.js (the server). This file only needs the mode
+// names for validation, imported from the same shared module so the client
+// and server can never silently drift out of sync.
 
-export const MODE_SYSTEM_PROMPTS = {
-  journey: `You are the Journey Concierge for Concourse26, a tournament-wide assistant for FIFA World Cup 2026 fans traveling between host cities in the USA, Mexico and Canada. Given a fan's match itinerary (origin city, one or more host-city venues, dates), produce a short multi-city plan covering: intercity transport between the listed host cities, the lowest-carbon realistic option, and one practical local tip per venue. Reply in the language the fan used. Under 110 words.`,
-  crowdmesh: `You are a cross-venue crowd analyst for Concourse26, monitoring multiple FIFA World Cup 2026 host-city stadiums at once (not just one). Given congestion data for several venues (JSON), identify: 1) which venue(s) pose the highest risk right now, 2) any cascading risk BETWEEN venues (e.g. shared regional transit, overlapping match end-times, border-crossing bottlenecks), 3) one tournament-wide dispatch or mitigation action. Under 100 words. Be operational and specific.`,
-  accesspass: `You are the Accessibility Passport assistant for Concourse26. A fan's accessibility profile follows them across FIFA World Cup 2026 venues in three countries. Given their stated need and the specific venue/city they are headed to next, generate a short, plain-language accommodation plan (max 5 steps) a local volunteer at THAT venue could execute immediately, noting anything venue- or country-specific (e.g. signage language, entry rules) if relevant.`,
-  workforce: `You are a tournament-wide workforce planner for Concourse26, reallocating volunteers and stewards ACROSS FIFA World Cup 2026 host venues, not just within one stadium. Given current staffing/demand signals for multiple venues (JSON), recommend a specific cross-venue reallocation (which venue to pull from, which to send to, roughly how many, and why it's logistically feasible). Under 90 words.`,
-  incident: `You triage operational incident reports for Concourse26 across FIFA World Cup 2026 host venues. Given free-text from a volunteer or steward at a specific venue, output exactly this shape:\nSEVERITY: <Low|Medium|High|Critical>\nCATEGORY: <Medical|Security|Crowd|Facilities|Lost & Found|Other>\nROUTE TO: <team>\nCROSS-VENUE PATTERN: <one sentence noting if this type of incident is worth watching for at other host cities today, or "None flagged">\nGuidance: <one terse operational sentence>`,
-  sustainledger: `You are the Tournament Sustainability Ledger assistant for Concourse26. Given a fan's chosen transport mode and trip details for one leg of their FIFA World Cup 2026 journey, estimate approximate CO2 saved versus driving alone, in under 60 words, and add one encouraging line connecting it to the tournament-wide sustainability effort across all 16 host venues.`,
-};
+import { ALLOWED_MODES } from '../../shared/systemPrompts.js';
+
+// In-session response cache: an identical (mode, prompt) pair within the
+// same page load reuses the prior result instead of re-calling the API —
+// a real efficiency win when a user re-clicks a preset or the same button
+// twice. Cleared automatically on page reload (plain in-memory Map).
+const responseCache = new Map();
 
 async function callServerAI(mode, userPrompt) {
   const res = await fetch('/api/ai', {
@@ -106,29 +110,44 @@ function demoSustainLedger(prompt) {
   return `Estimated CO2 saved on this leg: ~${co2} kg versus driving alone. Multiply that across a tournament with 16 venues and millions of traveling fans — every mode-shift like this adds up to a measurably lighter footprint for World Cup 2026 as a whole.`;
 }
 
+function runDemo(mode, prompt, payload) {
+  switch (mode) {
+    case 'journey': return demoJourney(prompt);
+    case 'crowdmesh': return demoCrowdMesh(payload);
+    case 'accesspass': return demoAccessPass(prompt);
+    case 'workforce': return demoWorkforce(payload);
+    case 'incident': return demoIncident(prompt);
+    case 'sustainledger': return demoSustainLedger(prompt);
+    default: return "I don't have a demo response configured for this module yet.";
+  }
+}
+
 /**
  * Unified entry point used by every module.
- * @param {string} mode - one of MODE_SYSTEM_PROMPTS keys
- * @param {string|object} payload - prompt string, or structured data
+ * @param {string} mode - one of the six module keys (see shared/systemPrompts.js)
+ * @param {string|object} payload - prompt string, or structured data (e.g. venue arrays)
  * @returns {Promise<{text: string, source: 'live'|'demo'}>}
  */
 export async function askAI(mode, payload) {
+  if (!ALLOWED_MODES.has(mode)) {
+    return { text: "I don't have a demo response configured for this module yet.", source: 'demo' };
+  }
+
   const prompt = typeof payload === 'string' ? payload : JSON.stringify(payload);
+  const cacheKey = `${mode}:${prompt}`;
+  if (responseCache.has(cacheKey)) {
+    return responseCache.get(cacheKey);
+  }
+
+  let result;
   try {
     const text = await callServerAI(mode, prompt);
-    return { text, source: 'live' };
-  } catch (e) {
+    result = { text, source: 'live' };
+  } catch {
     await new Promise((r) => setTimeout(r, 500 + Math.random() * 400));
-    let text;
-    switch (mode) {
-      case 'journey': text = demoJourney(prompt); break;
-      case 'crowdmesh': text = demoCrowdMesh(payload); break;
-      case 'accesspass': text = demoAccessPass(prompt); break;
-      case 'workforce': text = demoWorkforce(payload); break;
-      case 'incident': text = demoIncident(prompt); break;
-      case 'sustainledger': text = demoSustainLedger(prompt); break;
-      default: text = "I don't have a demo response configured for this module yet.";
-    }
-    return { text, source: 'demo' };
+    result = { text: runDemo(mode, prompt, payload), source: 'demo' };
   }
+
+  responseCache.set(cacheKey, result);
+  return result;
 }

@@ -24,7 +24,7 @@ export default function AccessPassport() {
   return (
     <div>
       <p style={{ color: 'var(--ink-muted)', fontSize: 13, marginTop: 0 }}>
-        A fan's accessibility profile travels with them — regenerated for whichever of the 16 venues they're headed to next.
+        A fan&apos;s accessibility profile travels with them — regenerated for whichever of the 16 venues they&apos;re headed to next.
       </p>
       <div className="grid-2">
         <div>
@@ -35,7 +35,7 @@ export default function AccessPassport() {
           </div>
         </div>
         <div>
-          <label className="field-label" htmlFor="ap-venue">Next venue on this fan's itinerary</label>
+          <label className="field-label" htmlFor="ap-venue">Next venue on this fan&apos;s itinerary</label>
           <select id="ap-venue" value={venue} onChange={(e) => setVenue(e.target.value)}>
             {VENUES.map((v) => <option key={v.id}>{v.name}</option>)}
           </select>
@@ -55,7 +55,7 @@ export default function AccessPassport() {
       </div>
 
       {result && (
-        <div className="ai-output" style={{ fontSize: largeText ? 17 : 14, background: highContrast ? '#000' : undefined, color: highContrast ? '#FFF200' : undefined }}>
+        <div className="ai-output" role="status" aria-live="polite" style={{ fontSize: largeText ? 17 : 14, background: highContrast ? '#000' : undefined, color: highContrast ? '#FFF200' : undefined }}>
           <span className="tag">{source === 'live' ? 'AI-generated plan' : 'Demo intelligence'}</span>
           {result}
         </div>

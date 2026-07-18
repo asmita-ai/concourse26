@@ -38,7 +38,7 @@ export default function JourneyConcierge() {
   return (
     <div>
       <p style={{ color: 'var(--ink-muted)', fontSize: 13, marginTop: 0 }}>
-        One plan spanning a fan's whole tournament — not four separate tools for routing, transport, sustainability and language.
+        One plan spanning a fan&apos;s whole tournament — not four separate tools for routing, transport, sustainability and language.
       </p>
       <div className="grid-3">
         <div>
@@ -73,7 +73,7 @@ export default function JourneyConcierge() {
         ))}
       </div>
       {result && (
-        <div className="ai-output">
+        <div className="ai-output" role="status" aria-live="polite">
           <span className="tag">{source === 'live' ? 'AI-generated journey plan' : 'Demo intelligence'}</span>
           {result}
         </div>
